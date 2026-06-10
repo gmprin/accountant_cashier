@@ -8,20 +8,58 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const router = useRouter()
-  const supabase = createClient()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      toast.error('Λάθος email ή κωδικός')
+    setError('')
+    
+    try {
+      const supabase = createClient()
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ 
+        email: email.trim(), 
+        password 
+      })
+      
+      if (authError) {
+        setError(`Σφάλμα: ${authError.message}`)
+        setLoading(false)
+        return
+      }
+
+      if (!data.user) {
+        setError('Δεν βρέθηκε χρήστης')
+        setLoading(false)
+        return
+      }
+
+      // Έλεγχος profile
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single()
+
+      if (profileError) {
+        setError(`Σφάλμα profile: ${profileError.message}`)
+        setLoading(false)
+        return
+      }
+
+      if (!profile) {
+        setError('Δεν βρέθηκε προφίλ χρήστη')
+        setLoading(false)
+        return
+      }
+
+      router.push('/dashboard')
+      router.refresh()
+    } catch (err: any) {
+      setError(`Απροσδόκητο σφάλμα: ${err.message}`)
       setLoading(false)
-      return
     }
-    router.push('/dashboard')
-    router.refresh()
   }
 
   return (
@@ -62,6 +100,11 @@ export default function LoginPage() {
                 required
               />
             </div>
+            {error && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
             <button
               type="submit"
               className="btn-primary w-full justify-center"
@@ -71,10 +114,6 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
-
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Αν δεν έχετε λογαριασμό, επικοινωνήστε με τον διαχειριστή
-        </p>
       </div>
     </div>
   )
