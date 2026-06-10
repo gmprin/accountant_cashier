@@ -583,7 +583,7 @@ function ClientDetailModal({ client, onClose, canEdit, onRefresh }: {
                           onChange={e => setEditAmount({ id: c.id, amount: e.target.value })}
                           step="0.01"
                         />
-                        <button className="btn-primary btn-sm py-1 text-xs" onClick={() => handleEditCharge(c.id, parseFloat(editAmount.amount))}>✓</button>
+                        <button className="btn-primary btn-sm py-1 text-xs" onClick={() => handleEditCharge(c.id, parseFloat(editAmount?.amount || '0'))}>✓</button>
                         <button className="btn-secondary btn-sm py-1 text-xs" onClick={() => setEditAmount(null)}>✕</button>
                       </div>
                     ) : (
