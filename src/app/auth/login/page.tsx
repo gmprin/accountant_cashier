@@ -1,65 +1,32 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
-import toast from 'react-hot-toast'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const router = useRouter()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
     
-    try {
-      const supabase = createClient()
-      const { data, error: authError } = await supabase.auth.signInWithPassword({ 
-        email: email.trim(), 
-        password 
-      })
-      
-      if (authError) {
-        setError(`Σφάλμα: ${authError.message}`)
-        setLoading(false)
-        return
-      }
-
-      if (!data.user) {
-        setError('Δεν βρέθηκε χρήστης')
-        setLoading(false)
-        return
-      }
-
-      // Έλεγχος profile
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single()
-
-      if (profileError) {
-        setError(`Σφάλμα profile: ${profileError.message}`)
-        setLoading(false)
-        return
-      }
-
-      if (!profile) {
-        setError('Δεν βρέθηκε προφίλ χρήστη')
-        setLoading(false)
-        return
-      }
-
-      router.push('/dashboard')
-      router.refresh()
-    } catch (err: any) {
-      setError(`Απροσδόκητο σφάλμα: ${err.message}`)
+    const supabase = createClient()
+    const { error: authError } = await supabase.auth.signInWithPassword({ 
+      email: email.trim(), 
+      password 
+    })
+    
+    if (authError) {
+      setError(`Σφάλμα: ${authError.message}`)
       setLoading(false)
+      return
     }
+
+    // Χρησιμοποίησε window.location αντί για router
+    window.location.href = '/dashboard'
   }
 
   return (
