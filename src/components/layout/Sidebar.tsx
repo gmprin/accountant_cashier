@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/pelates', icon: '⊕', label: 'Πελάτες' },
   { href: '/dashboard/ypohrewseis', icon: '⊞', label: 'Υποχρεώσεις' },
   { href: '/dashboard/ekkath', icon: '≡', label: 'Εκκαθάριση' },
-  { href: '/dashboard/syntairoi', icon: '⊗', label: 'Συνεταίροι' },
+  { href: '/dashboard/dianomi', icon: '⊗', label: 'Διανομή' },
 ]
 
 const ADMIN_ITEMS = [
