@@ -10,16 +10,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  const { supabase, supabaseResponse } = createMiddlewareClient(request)
-  const { data: { user } } = await supabase.auth.getUser()
+  try {
+    const { supabase, supabaseResponse } = createMiddlewareClient(request)
+    const { data: { session } } = await supabase.auth.getSession()
 
-  if (!user) {
+    if (!session) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth/login'
+      return NextResponse.redirect(url)
+    }
+
+    return supabaseResponse
+  } catch (e) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
-
-  return supabaseResponse
 }
 
 export const config = {
