@@ -579,7 +579,7 @@ function ClientDetailModal({ client, onClose, canEdit, onRefresh }: {
                         <input
                           type="number"
                           className="input w-24 py-1 text-xs"
-                          value={editAmount?.amount}
+                          value={editAmount?.amount ?? ''}
                           onChange={e => setEditAmount({ id: c.id, amount: e.target.value })}
                           step="0.01"
                         />
