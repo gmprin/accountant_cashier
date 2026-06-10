@@ -46,7 +46,7 @@ export function entryTypeLabel(type: string): string {
     expense_periodic: 'Περιοδική υποχρέωση',
     expense_adhoc: 'Έκτακτη πληρωμή',
     salary: 'Μισθοδοσία',
-    distribution: 'Διανομή συνεταίρου',
+    distribution: 'Διανομή κερδών',
     transfer: 'Μεταφορά υπολοίπου',
   }
   return labels[type] || type
