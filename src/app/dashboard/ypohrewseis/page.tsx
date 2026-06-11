@@ -46,14 +46,28 @@ export default function YpohrewseisPage() {
     setShowForm(true)
   }
 
+  function getLastWorkingDay(year: number, month: number): string {
+    // Τελευταία εργάσιμη του μήνα (Δευτέρα-Παρασκευή)
+    let date = new Date(year, month, 0) // τελευταία μέρα μήνα
+    while (date.getDay() === 0 || date.getDay() === 6) {
+      date.setDate(date.getDate() - 1)
+    }
+    return date.toISOString().split('T')[0]
+  }
+
   async function handleSave() {
     const nm = form.obligation_type==='employee' ? form.employee_name : form.name
     if (!nm) { toast.error('Συμπλήρωσε όνομα'); return }
+    const now = new Date()
+    // Για σταθερές και μισθοδοσία: αυτόματα τελευταία εργάσιμη τρέχοντος μήνα
+    const autoDate = (form.obligation_type === 'fixed' || form.obligation_type === 'employee')
+      ? getLastWorkingDay(now.getFullYear(), now.getMonth()+1)
+      : form.next_due_date||null
     const payload: any = {
       name: nm, obligation_type: form.obligation_type,
       amount: parseFloat(form.amount)||0, recurrence: form.recurrence,
       employee_name: form.obligation_type==='employee' ? form.employee_name : null,
-      next_due_date: form.next_due_date||null,
+      next_due_date: autoDate,
     }
     let error
     if (editingObl) {
