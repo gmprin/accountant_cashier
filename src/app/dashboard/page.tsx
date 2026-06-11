@@ -30,7 +30,7 @@ export default function DashboardPage() {
       supabase.rpc('get_period_summary', { p_from: monthStart, p_to: monthEnd }),
       supabase.rpc('get_cashflow_balance'),
       supabase.from('cashflow_entries')
-        .select('*, client:clients(name), partner:partners(name), user:user_profiles(full_name)')
+        .select('*, client:clients(name), partner:partners(name)')
         .order('entry_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(50),
