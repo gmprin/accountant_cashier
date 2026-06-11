@@ -254,36 +254,91 @@ export default function TamioPage() {
           </form>
         </div>
 
-        {/* Λίστα κινήσεων */}
-        <div className="card p-0 overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100"><p className="section-title mb-0">Κινήσεις εβδομάδας</p></div>
-          {loading ? <p className="text-center text-gray-400 py-8 text-sm">Φόρτωση...</p> : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className="bg-gray-50">
-                  <th className="table-header w-24">Ημ/νία</th>
-                  <th className="table-header w-36">Τύπος</th>
-                  <th className="table-header">Περιγραφή</th>
-                  <th className="table-header w-28 text-right">Ποσό</th>
-                  <th className="table-header w-24">Χρήστης</th>
-                  <th className="table-header w-12"></th>
-                </tr></thead>
-                <tbody>
-                  {entries.map(entry => (
-                    <tr key={entry.id} className="hover:bg-gray-50">
-                      <td className="table-cell text-gray-500 text-xs">{new Date(entry.entry_date).toLocaleDateString('el-GR')}</td>
-                      <td className="table-cell"><span className={clsx('badge', entry.entry_type === 'receipt' ? 'badge-green' : entry.entry_type === 'distribution' ? 'badge-amber' : 'badge-red')}>{entryTypeLabel(entry.entry_type)}</span></td>
-                      <td className="table-cell"><div className="font-medium">{entry.description || entry.client?.name || entry.partner?.name || entry.obligation?.name || '—'}</div>{entry.client && entry.description && <div className="text-xs text-gray-400">{entry.client.name}</div>}</td>
-                      <td className={`table-cell text-right font-semibold ${entry.entry_type === 'receipt' ? 'text-green-600' : 'text-red-600'}`}>{entry.entry_type === 'receipt' ? '+' : '−'}{formatMoney(entry.amount)}</td>
-                      <td className="table-cell text-xs text-gray-400">{entry.user?.full_name || '—'}</td>
-                      <td className="table-cell"><button onClick={() => handleDelete(entry.id)} className="text-gray-300 hover:text-red-500 text-lg leading-none">×</button></td>
-                    </tr>
-                  ))}
-                  {entries.length === 0 && <tr><td colSpan={6} className="table-cell text-center text-gray-400 py-10">Δεν υπάρχουν κινήσεις αυτή την εβδομάδα</td></tr>}
-                </tbody>
-              </table>
+        {/* Λίστα κινήσεων — διπλός πίνακας */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Εισπράξεις */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <p className="section-title mb-0">Εισπράξεις</p>
+              <span className="text-xs text-gray-400">{entries.filter(e=>e.entry_type==='receipt').length} κινήσεις</span>
             </div>
-          )}
+            {loading ? <p className="text-center text-gray-400 py-6 text-sm">Φόρτωση...</p> : (
+              <>
+                <div className="overflow-y-auto max-h-72">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-gray-50">
+                      <tr>
+                        <th className="table-header w-20">Ημ/νία</th>
+                        <th className="table-header">Πελάτης</th>
+                        <th className="table-header w-24 text-right">Ποσό</th>
+                        <th className="table-header w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entries.filter(e=>e.entry_type==='receipt').map(entry=>(
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="table-cell text-gray-500 text-xs">{new Date(entry.entry_date).toLocaleDateString('el-GR')}</td>
+                          <td className="table-cell text-sm">{entry.client?.name || entry.description || '—'}</td>
+                          <td className="table-cell text-right font-semibold text-green-600">+{formatMoney(entry.amount)}</td>
+                          <td className="table-cell"><button onClick={()=>handleDelete(entry.id)} className="text-gray-300 hover:text-red-500 text-base leading-none">×</button></td>
+                        </tr>
+                      ))}
+                      {entries.filter(e=>e.entry_type==='receipt').length===0 && (
+                        <tr><td colSpan={4} className="table-cell text-center text-gray-400 py-6">Καμία είσπραξη</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-5 py-2 border-t border-gray-100 flex justify-between text-sm bg-gray-50">
+                  <span className="text-gray-500">Σύνολο</span>
+                  <span className="font-semibold text-green-600">+{formatMoney(entries.filter(e=>e.entry_type==='receipt').reduce((s,e)=>s+e.amount,0))}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Πληρωμές & Διανομές */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <p className="section-title mb-0">Πληρωμές & Διανομές</p>
+              <span className="text-xs text-gray-400">{entries.filter(e=>e.entry_type!=='receipt').length} κινήσεις</span>
+            </div>
+            {loading ? <p className="text-center text-gray-400 py-6 text-sm">Φόρτωση...</p> : (
+              <>
+                <div className="overflow-y-auto max-h-72">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-gray-50">
+                      <tr>
+                        <th className="table-header w-20">Ημ/νία</th>
+                        <th className="table-header w-28">Τύπος</th>
+                        <th className="table-header">Περιγραφή</th>
+                        <th className="table-header w-24 text-right">Ποσό</th>
+                        <th className="table-header w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entries.filter(e=>e.entry_type!=='receipt').map(entry=>(
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="table-cell text-gray-500 text-xs">{new Date(entry.entry_date).toLocaleDateString('el-GR')}</td>
+                          <td className="table-cell"><span className={clsx('badge', entry.entry_type==='distribution'?'badge-amber':'badge-red')}>{entryTypeLabel(entry.entry_type)}</span></td>
+                          <td className="table-cell text-sm">{entry.description || entry.partner?.name || entry.obligation?.name || '—'}</td>
+                          <td className="table-cell text-right font-semibold text-red-600">−{formatMoney(entry.amount)}</td>
+                          <td className="table-cell"><button onClick={()=>handleDelete(entry.id)} className="text-gray-300 hover:text-red-500 text-base leading-none">×</button></td>
+                        </tr>
+                      ))}
+                      {entries.filter(e=>e.entry_type!=='receipt').length===0 && (
+                        <tr><td colSpan={5} className="table-cell text-center text-gray-400 py-6">Καμία πληρωμή</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-5 py-2 border-t border-gray-100 flex justify-between text-sm bg-gray-50">
+                  <span className="text-gray-500">Σύνολο</span>
+                  <span className="font-semibold text-red-600">−{formatMoney(entries.filter(e=>e.entry_type!=='receipt').reduce((s,e)=>s+e.amount,0))}</span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
