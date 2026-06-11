@@ -50,13 +50,13 @@ export default function DashboardPage() {
 
   async function loadObligationsTotal() {
     const now = new Date()
-    // Εβδομάδα: Δευτέρα έως Κυριακή
     const weekStart = getWeekStartStr()
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekEnd.getDate() + 6)
-    const weekEndStr = weekEnd.toISOString().split('T')[0]
-    // Μήνας
+    const weekEndDate = new Date(weekStart)
+    weekEndDate.setDate(weekEndDate.getDate() + 6)
+    const weekEndStr = weekEndDate.toISOString().split('T')[0]
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
     const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]
+    const todayStr = now.toISOString().split('T')[0]
 
     const { data: obls } = await supabase
       .from('obligations')
@@ -66,18 +66,28 @@ export default function DashboardPage() {
     const result = (obls||[]).map((o:any) => {
       const paid = (o.payments||[]).reduce((p:number,x:any)=>p+x.amount, 0)
       const balance = o.amount > 0 ? o.amount - paid : 0
-      return { ...o, paid, balance }
+      const dueDateStr = o.next_due_date ? o.next_due_date.substring(0,10) : null
+      return { ...o, paid, balance, dueDateStr }
     }).filter((o:any) => o.balance > 0)
 
-    // Εβδομαδιαίες: λήγουν εντός τρέχουσας εβδομάδας
+    // Εβδομαδιαίες: λήγουν εντός τρέχουσας εβδομάδας Ή έχουν ήδη λήξει
     const weekTotal = result
-      .filter((o:any) => o.next_due_date && o.next_due_date >= weekStart && o.next_due_date <= weekEndStr)
+      .filter((o:any) => {
+        if (!o.dueDateStr) return false
+        // Εκπρόθεσμες (έχουν ήδη λήξει)
+        if (o.dueDateStr < todayStr) return true
+        // Λήγουν εντός εβδομάδας
+        return o.dueDateStr >= weekStart && o.dueDateStr <= weekEndStr
+      })
       .reduce((s:number,o:any)=>s+o.balance, 0)
 
-    // Μηνιαίες: λήγουν εντός τρέχοντος μήνα
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
+    // Μηνιαίες: λήγουν εντός τρέχοντος μήνα Ή έχουν ήδη λήξει
     const monthTotal = result
-      .filter((o:any) => o.next_due_date && o.next_due_date >= monthStart && o.next_due_date <= monthEnd)
+      .filter((o:any) => {
+        if (!o.dueDateStr) return false
+        if (o.dueDateStr < todayStr) return true
+        return o.dueDateStr >= monthStart && o.dueDateStr <= monthEnd
+      })
       .reduce((s:number,o:any)=>s+o.balance, 0)
 
     setTotalUnpaidObl(weekTotal)
