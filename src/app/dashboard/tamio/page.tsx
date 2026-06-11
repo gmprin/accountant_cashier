@@ -57,7 +57,7 @@ export default function TamioPage() {
       { data: p },
     ] = await Promise.all([
       supabase.from('cashflow_entries')
-        .select('*, client:clients(id,name,afm), partner:partners(id,name), obligation:obligations(id,name), user:user_profiles(full_name)')
+        .select('*, client:clients(id,name,afm), partner:partners(id,name), obligation:obligations(id,name)')
         .gte('entry_date', weekStart).lte('entry_date', weekEnd)
         .order('entry_date', { ascending: false }).order('created_at', { ascending: false }),
       supabase.rpc('get_weekly_summary', { p_week_start: weekStart }),
