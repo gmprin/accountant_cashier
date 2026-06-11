@@ -16,6 +16,7 @@ export default function DashboardPage() {
   const [showOblWeekModal, setShowOblWeekModal] = useState(false)
   const [showOblMonthModal, setShowOblMonthModal] = useState(false)
   const [oblData, setOblData] = useState<any[]>([])
+  const [totalUnpaidObl, setTotalUnpaidObl] = useState(0)
   const weekStart = getWeekStartStr()
 
   useEffect(() => { loadData() }, [])
@@ -38,10 +39,25 @@ export default function DashboardPage() {
     setWeekly(w?.[0])
     setMonthly(m?.[0])
     setBalance(b||0)
+    // Load obligations για τα totals
+    loadObligationsTotal()
     const entries = e || []
     setAllReceipts(entries.filter((x:any) => x.entry_type === 'receipt'))
     setAllPayments(entries.filter((x:any) => x.entry_type !== 'receipt'))
     setLoading(false)
+  }
+
+  async function loadObligationsTotal() {
+    const { data: obls } = await supabase
+      .from('obligations')
+      .select('*, payments:obligation_payments(amount)')
+      .eq('is_active', true)
+    const total = (obls||[]).reduce((s:number,o:any) => {
+      const paid = (o.payments||[]).reduce((p:number,x:any)=>p+x.amount, 0)
+      const balance = o.amount > 0 ? o.amount - paid : 0
+      return s + balance
+    }, 0)
+    setTotalUnpaidObl(total)
   }
 
   async function loadObligations() {
@@ -55,6 +71,7 @@ export default function DashboardPage() {
       return { ...o, paid, balance }
     }).filter((o:any) => o.balance > 0)
     setOblData(result)
+    setTotalUnpaidObl(result.reduce((s:number,o:any)=>s+o.balance, 0))
   }
 
   function handleOblWeekClick() { loadObligations().then(()=>setShowOblWeekModal(true)) }
@@ -101,7 +118,7 @@ export default function DashboardPage() {
             </div>
             <div className="metric-card cursor-pointer hover:bg-orange-50 transition-colors border border-orange-100" onClick={handleOblWeekClick}>
               <p className="text-xs text-gray-500 mb-1">Ανεξόφλητες υποχρεώσεις <span className="text-blue-500 text-xs">↗</span></p>
-              <p className="text-lg font-semibold text-orange-600">{formatMoney(weekly?.total_expenses||0)}</p>
+              <p className="text-lg font-semibold text-orange-600">{formatMoney(totalUnpaidObl)}</p>
             </div>
           </div>
         </div>
@@ -128,7 +145,7 @@ export default function DashboardPage() {
             </div>
             <div className="metric-card cursor-pointer hover:bg-orange-50 transition-colors border border-orange-100" onClick={handleOblMonthClick}>
               <p className="text-xs text-gray-500 mb-1">Ανεξόφλητες υποχρεώσεις <span className="text-blue-500 text-xs">↗</span></p>
-              <p className="text-base font-semibold text-orange-600">{formatMoney((monthly?.total_expenses_fixed||0)+(monthly?.total_expenses_periodic||0))}</p>
+              <p className="text-base font-semibold text-orange-600">{formatMoney(totalUnpaidObl)}</p>
             </div>
           </div>
         </div>
