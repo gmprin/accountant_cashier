@@ -13,7 +13,7 @@ const ENTRY_TYPES = [
   { value: 'expense_fixed', label: 'Σταθερή υποχρέωση', income: false },
   { value: 'expense_periodic', label: 'Περιοδική υποχρέωση', income: false },
   { value: 'salary', label: 'Μισθοδοσία', income: false },
-  { value: 'distribution', label: 'Διανομή συνεταίρου', income: false },
+  { value: 'distribution', label: 'Διανομή κερδών', income: false },
 ]
 
 export default function TamioPage() {
