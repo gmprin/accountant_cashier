@@ -18,7 +18,7 @@ const REASONS = [
   { value: 'other', label: 'Άλλο' },
 ]
 
-const MONTHS = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
+const MONTHS_SHORT = ['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ']
 
 const emptyForm = {
   type: 'hond', name: '', afm: '',
@@ -30,9 +30,12 @@ const emptyForm = {
 export default function PelatesPage() {
   const supabase = createClient()
   const [clients, setClients] = useState<any[]>([])
+  const [clientMonthly, setClientMonthly] = useState<Record<number, any[]>>({})
+  const [clientReceipts, setClientReceipts] = useState<Record<number, any[]>>({})
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('hond')
   const [search, setSearch] = useState('')
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const [vatDisplay, setVatDisplay] = useState<'with'|'without'>('with')
   const [showForm, setShowForm] = useState(false)
   const [editingClient, setEditingClient] = useState<any>(null)
@@ -43,6 +46,7 @@ export default function PelatesPage() {
   const [form, setForm] = useState<any>({...emptyForm})
 
   useEffect(() => { loadClients() }, [])
+  useEffect(() => { if (clients.length > 0) loadMonthlyData() }, [clients, selectedYear])
 
   async function loadClients() {
     setLoading(true)
@@ -55,11 +59,47 @@ export default function PelatesPage() {
     setLoading(false)
   }
 
+  async function loadMonthlyData() {
+    const ids = clients.map(c => c.id)
+    if (!ids.length) return
+
+    const [{ data: charges }, { data: receipts }] = await Promise.all([
+      supabase.from('client_charges').select('client_id, month, amount, charge_type').eq('year', selectedYear).in('client_id', ids),
+      supabase.from('client_receipts').select('client_id, month, amount').eq('year', selectedYear).in('client_id', ids),
+    ])
+
+    const chargesMap: Record<number, any[]> = {}
+    const receiptsMap: Record<number, any[]> = {}
+    ;(charges||[]).forEach((c:any) => {
+      if (!chargesMap[c.client_id]) chargesMap[c.client_id] = []
+      chargesMap[c.client_id].push(c)
+    })
+    ;(receipts||[]).forEach((r:any) => {
+      if (!receiptsMap[r.client_id]) receiptsMap[r.client_id] = []
+      receiptsMap[r.client_id].push(r)
+    })
+    setClientMonthly(chargesMap)
+    setClientReceipts(receiptsMap)
+  }
+
+  function getMonthStatus(clientId: number, month: number) {
+    const charges = (clientMonthly[clientId]||[]).filter(c => c.month === month && c.charge_type !== 'stamp' && c.charge_type !== 'vat_yearly')
+    const receipts = (clientReceipts[clientId]||[]).filter(r => r.month === month)
+    const totalCharge = charges.reduce((s:number,c:any)=>s+c.amount, 0)
+    const totalReceipt = receipts.reduce((s:number,r:any)=>s+r.amount, 0)
+    if (totalCharge === 0) return { status: 'none', charge: 0, receipt: 0 }
+    if (totalReceipt >= totalCharge) return { status: 'paid', charge: totalCharge, receipt: totalReceipt }
+    if (totalReceipt > 0) return { status: 'partial', charge: totalCharge, receipt: totalReceipt }
+    return { status: 'unpaid', charge: totalCharge, receipt: 0 }
+  }
+
   const filtered = clients.filter(c => c.type === activeTab && (!search || c.name.toLowerCase().includes(search.toLowerCase()) || (c.afm||'').includes(search)))
 
   function calcDisplay(c: any) {
-    const base = c.fee_amount > 0 ? c.fee_amount : (vatDisplay === 'without' ? c.invoice_amount : (() => { const { total } = calcClientAmounts(c.invoice_amount, c.inc_stamp, c.inc_vat); return total })())
-    return base
+    const feeBase = c.fee_amount > 0 ? c.fee_amount : c.invoice_amount
+    if (vatDisplay === 'without') return feeBase
+    const { total } = calcClientAmounts(c.invoice_amount, c.inc_stamp, c.inc_vat)
+    return c.fee_amount > 0 ? c.fee_amount : total
   }
 
   function openNewForm() {
@@ -104,7 +144,6 @@ export default function PelatesPage() {
       const rl = form.reason==='other' ? form.reason_other : REASONS.find(r=>r.value===form.reason)?.label||form.reason
       Object.assign(payload, { reason: form.reason, reason_label: rl, fee: parseFloat(form.fee)||0 })
     }
-
     let error
     if (editingClient) {
       ({ error } = await supabase.from('clients').update(payload).eq('id', editingClient.id))
@@ -147,7 +186,11 @@ export default function PelatesPage() {
     const valid = importRows.filter(r=>r._valid)
     if (!valid.length) { toast.error('Δεν υπάρχουν έγκυρες γραμμές'); return }
     setImportLoading(true)
-    const { error } = await supabase.from('clients').insert(valid.map(r=>({ type: r.type, name: r.name, afm: r.afm||null, period: r.period, invoice_amount: r.invoice_amount||0, fee: r.fee||0, inc_stamp: true, inc_vat: true, vat_period: 'monthly' })))
+    const { error } = await supabase.from('clients').insert(valid.map(r=>({
+      type: r.type, name: r.name, afm: r.afm||null, period: r.period,
+      invoice_amount: r.invoice_amount||0, fee: r.fee||0,
+      inc_stamp: true, inc_vat: true, vat_period: 'monthly'
+    })))
     setImportLoading(false)
     if (error) { toast.error(error.message); return }
     toast.success(`${valid.length} πελάτες εισήχθησαν`)
@@ -178,6 +221,9 @@ export default function PelatesPage() {
         <div className="flex items-center gap-3 flex-wrap">
           <button className={clsx('btn btn-sm',activeTab==='hond'?'btn-primary':'btn-secondary')} onClick={()=>setActiveTab('hond')}>Χονδρική ({clients.filter(c=>c.type==='hond').length})</button>
           <button className={clsx('btn btn-sm',activeTab==='lian'?'btn-primary':'btn-secondary')} onClick={()=>setActiveTab('lian')}>Λιανική ({clients.filter(c=>c.type==='lian').length})</button>
+          <select className="select w-24 py-1 text-sm" value={selectedYear} onChange={e=>setSelectedYear(parseInt(e.target.value))}>
+            {getYearRange(2020).map(y=><option key={y} value={y}>{y}</option>)}
+          </select>
           <div className="flex items-center gap-3 ml-auto">
             <label className="text-xs text-gray-500 flex items-center gap-1.5 cursor-pointer"><input type="radio" name="vd" value="with" checked={vatDisplay==='with'} onChange={()=>setVatDisplay('with')} /> Με επιβαρύνσεις</label>
             <label className="text-xs text-gray-500 flex items-center gap-1.5 cursor-pointer"><input type="radio" name="vd" value="without" checked={vatDisplay==='without'} onChange={()=>setVatDisplay('without')} /> Χωρίς</label>
@@ -186,47 +232,84 @@ export default function PelatesPage() {
 
         <input type="text" className="input max-w-xs" placeholder="Αναζήτηση ονόματος / ΑΦΜ..." value={search} onChange={e=>setSearch(e.target.value)} />
 
-        <div className="card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50"><tr>
-                <th className="table-header">Επωνυμία</th>
-                <th className="table-header w-24">ΑΦΜ</th>
-                {activeTab==='hond' ? (<>
-                  <th className="table-header w-24">Περίοδος</th>
-                  <th className="table-header w-28 text-right">Αμοιβή</th>
-                  <th className="table-header w-28 text-right">Τιμολόγιο</th>
-                </>) : <th className="table-header">Αιτιολογία</th>}
-                <th className="table-header w-28 text-right">Υπόλοιπο</th>
-                <th className="table-header w-20"></th>
-              </tr></thead>
-              <tbody>
-                {loading ? <tr><td colSpan={7} className="table-cell text-center text-gray-400 py-10">Φόρτωση...</td></tr>
-                : filtered.map(c=>(
-                  <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={()=>setSelectedClient(c)}>
-                    <td className="table-cell font-medium">{c.name}</td>
-                    <td className="table-cell text-gray-500 text-xs">{c.afm||'—'}</td>
-                    {activeTab==='hond' ? (<>
-                      <td className="table-cell"><span className="badge badge-blue">{periodLabel(c.period||'monthly')}</span></td>
-                      <td className="table-cell text-right font-medium text-blue-700">{c.fee_amount > 0 ? formatMoney(c.fee_amount) : formatMoney(c.invoice_amount)}</td>
-                      <td className="table-cell text-right text-xs text-gray-400">{formatMoney(c.invoice_amount)}</td>
-                    </>) : <td className="table-cell text-sm text-gray-500">{c.reason_label||'—'}</td>}
-                    <td className={`table-cell text-right font-semibold ${c.current_balance>0?'text-red-600':c.current_balance<0?'text-green-600':'text-gray-400'}`}>{c.current_balance>0?'+':''}{formatMoney(c.current_balance)}</td>
-                    <td className="table-cell" onClick={e=>e.stopPropagation()}>
-                      <button className="text-xs text-blue-500 hover:text-blue-700 mr-2" onClick={()=>openEditForm(c)}>✎</button>
-                      <button className="text-gray-300 hover:text-red-500 text-lg leading-none" onClick={()=>handleDelete(c.id)}>×</button>
-                    </td>
-                  </tr>
-                ))}
-                {!loading&&filtered.length===0&&<tr><td colSpan={7} className="table-cell text-center text-gray-400 py-10">Δεν βρέθηκαν πελάτες</td></tr>}
-              </tbody>
-            </table>
+        {/* Λίστα πελατών με μηνιαία grid */}
+        {loading ? <p className="text-center text-gray-400 py-10">Φόρτωση...</p> : (
+          <div className="space-y-3">
+            {filtered.map(c => {
+              const dispAmt = calcDisplay(c)
+              const bal = c.current_balance
+              return (
+                <div key={c.id} className="card cursor-pointer hover:shadow-sm transition-shadow" onClick={()=>setSelectedClient(c)}>
+                  {/* Header πελάτη */}
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-gray-900">{c.name}</span>
+                        <span className={clsx('badge',c.type==='hond'?'badge-blue':'badge-purple')}>{c.type==='hond'?'Χονδρική':'Λιανική'}</span>
+                        {c.type==='hond' && <span className="badge badge-gray">{periodLabel(c.period||'monthly')}</span>}
+                      </div>
+                      {c.afm && <p className="text-xs text-gray-400">ΑΦΜ: {c.afm}</p>}
+                      {c.type==='lian' && <p className="text-xs text-gray-500">{c.reason_label}</p>}
+                      {c.type==='hond' && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Αμοιβή: <span className="font-medium text-blue-700">{formatMoney(c.fee_amount > 0 ? c.fee_amount : c.invoice_amount)}</span>
+                          {c.fee_amount > 0 && <span className="text-gray-400"> | Τιμολόγιο: {formatMoney(c.invoice_amount)}</span>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-xs text-gray-400">Υπόλοιπο</p>
+                        <p className={`text-base font-bold ${bal>0?'text-red-600':bal<0?'text-green-600':'text-gray-400'}`}>{bal>0?'+':''}{formatMoney(bal)}</p>
+                      </div>
+                      <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
+                        <button className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded border border-blue-200" onClick={()=>openEditForm(c)}>✎</button>
+                        <button className="text-gray-300 hover:text-red-500 text-lg leading-none px-1" onClick={()=>handleDelete(c.id)}>×</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Μηνιαία grid */}
+                  <div className="grid grid-cols-6 md:grid-cols-12 gap-1" onClick={e=>e.stopPropagation()}>
+                    {MONTHS_SHORT.map((mn,i) => {
+                      const ms = getMonthStatus(c.id, i+1)
+                      return (
+                        <div key={i} className={clsx(
+                          'rounded px-1 py-1.5 text-center text-xs border',
+                          ms.status==='none' ? 'bg-gray-50 border-gray-100 text-gray-300' :
+                          ms.status==='paid' ? 'bg-green-50 border-green-200 text-green-700' :
+                          ms.status==='partial' ? 'bg-orange-50 border-orange-200 text-orange-700' :
+                          'bg-red-50 border-red-200 text-red-700'
+                        )}>
+                          <div className="font-medium">{mn}</div>
+                          {ms.status !== 'none' && (
+                            <div className="text-xs mt-0.5 leading-tight">
+                              {ms.status==='paid'
+                                ? <span>✓</span>
+                                : ms.status==='partial'
+                                  ? <span>{formatMoney(ms.receipt)}</span>
+                                  : <span>{formatMoney(ms.charge)}</span>
+                              }
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-green-200 inline-block"></span>Εξοφλημένη</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-orange-200 inline-block"></span>Μερική</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-red-200 inline-block"></span>Ανεξόφλητη</span>
+                  </div>
+                </div>
+              )
+            })}
+            {filtered.length===0 && <p className="text-center text-gray-400 py-10">Δεν βρέθηκαν πελάτες</p>}
           </div>
-          <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-400">{filtered.length} από {clients.filter(c=>c.type===activeTab).length} πελάτες</div>
-        </div>
+        )}
       </div>
 
-      {/* Φόρμα νέου/επεξεργασίας πελάτη */}
+      {/* Φόρμα νέου/επεξεργασίας */}
       {showForm && (
         <Modal title={editingClient ? `Επεξεργασία: ${editingClient.name}` : 'Νέος πελάτης'} onClose={()=>{setShowForm(false);setEditingClient(null)}} wide>
           <div className="space-y-4">
@@ -239,7 +322,6 @@ export default function PelatesPage() {
               <div><label className="label">ΑΦΜ</label><input className="input" value={form.afm} onChange={e=>setForm((f:any)=>({...f,afm:e.target.value}))} placeholder="123456789" /></div>
               <div><label className="label">Προηγούμενο υπόλοιπο (€)</label><input type="number" className="input" value={form.opening_balance} onChange={e=>setForm((f:any)=>({...f,opening_balance:e.target.value}))} placeholder="0.00" step="0.01" /></div>
             </div>
-
             {form.type==='hond' ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
@@ -250,7 +332,7 @@ export default function PelatesPage() {
                   </div>
                   <div><label className="label">Ποσό τιμολογίου (€)</label><input type="number" className="input" value={form.invoice_amount} onChange={e=>setForm((f:any)=>({...f,invoice_amount:e.target.value}))} placeholder="0.00" step="0.01" /></div>
                   <div>
-                    <label className="label">Αμοιβή χρέωσης (€) <span className="text-gray-400 font-normal">— βάση υπολοίπου</span></label>
+                    <label className="label">Αμοιβή χρέωσης (€) <span className="text-gray-400 font-normal text-xs">βάση υπολοίπου</span></label>
                     <input type="number" className="input" value={form.fee_amount} onChange={e=>setForm((f:any)=>({...f,fee_amount:e.target.value}))} placeholder="0.00 (αν διαφέρει από τιμολόγιο)" step="0.01" />
                   </div>
                   <div><label className="label">ΦΠΑ περιοδικότητα</label>
@@ -267,7 +349,7 @@ export default function PelatesPage() {
                 {inv > 0 && (
                   <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
                     <div className="text-gray-600">Τιμολόγιο: {formatMoney(inv)}{form.inc_stamp&&` + Χαρτόσημο: ${formatMoney(stamp)}`}{form.inc_vat&&` + ΦΠΑ: ${formatMoney(vat)}`} = <strong>{formatMoney(inv+stamp+vat)}</strong></div>
-                    {feeAmt > 0 && <div className="text-blue-700 font-medium">Αμοιβή χρέωσης (βάση υπολοίπου): {formatMoney(feeAmt)}</div>}
+                    {feeAmt > 0 && <div className="text-blue-700 font-medium">Αμοιβή χρέωσης: {formatMoney(feeAmt)}</div>}
                   </div>
                 )}
               </div>
@@ -326,18 +408,23 @@ export default function PelatesPage() {
 
       {/* Λεπτομέρειες πελάτη */}
       {selectedClient && (
-        <ClientDetailModal client={selectedClient} onClose={()=>setSelectedClient(null)} onRefresh={loadClients} />
+        <ClientDetailModal
+          client={selectedClient}
+          year={selectedYear}
+          onClose={()=>setSelectedClient(null)}
+          onRefresh={loadClients}
+        />
       )}
     </div>
   )
 }
 
 // ============================================================
-// CLIENT DETAIL MODAL - με μηνιαία grid
+// CLIENT DETAIL MODAL
 // ============================================================
-function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClose: ()=>void; onRefresh: ()=>void }) {
+function ClientDetailModal({ client, year, onClose, onRefresh }: { client: any; year: number; onClose: ()=>void; onRefresh: ()=>void }) {
   const supabase = createClient()
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [selectedYear, setSelectedYear] = useState(year)
   const [charges, setCharges] = useState<any[]>([])
   const [receipts, setReceipts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -346,7 +433,7 @@ function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClos
   const [transferTo, setTransferTo] = useState('')
   const [transferAmt, setTransferAmt] = useState('')
 
-  useEffect(() => { loadData() }, [year])
+  useEffect(() => { loadData() }, [selectedYear])
   useEffect(() => {
     supabase.from('clients').select('id,name').eq('is_active',true).neq('id',client.id).order('name').then(({data})=>setAllClients(data||[]))
   }, [])
@@ -354,30 +441,26 @@ function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClos
   async function loadData() {
     setLoading(true)
     const [{ data: c }, { data: r }] = await Promise.all([
-      supabase.from('client_charges').select('*').eq('client_id',client.id).eq('year',year).order('month'),
-      supabase.from('client_receipts').select('*').eq('client_id',client.id).eq('year',year).order('receipt_date',{ascending:false}),
+      supabase.from('client_charges').select('*').eq('client_id',client.id).eq('year',selectedYear).order('month'),
+      supabase.from('client_receipts').select('*').eq('client_id',client.id).eq('year',selectedYear).order('receipt_date',{ascending:false}),
     ])
     setCharges(c||[]); setReceipts(r||[]); setLoading(false)
   }
 
   const totalCharges = charges.reduce((s,c)=>s+c.amount,0)
   const totalReceipts = receipts.reduce((s,r)=>s+r.amount,0)
-  const yearBalance = client.opening_balance + totalCharges - totalReceipts
+  const yearBalance = (client.opening_balance||0) + totalCharges - totalReceipts
 
-  // Υπολόγισε εξόφληση ανά μήνα
-  // Κάθε μήνας έχει χρεώσεις και αντίστοιχες εισπράξεις
   const monthlyData = Array.from({length:12},(_,i)=>{
     const m = i+1
-    const mCharges = charges.filter(c=>c.month===m).reduce((s,c)=>s+c.amount,0)
-    // Εισπράξεις που αντιστοιχούν σε αυτόν τον μήνα
-    const mReceipts = receipts.filter(r=>r.month===m).reduce((s,r)=>s+r.amount,0)
+    const mCharges = charges.filter(c=>c.month===m && c.charge_type!=='stamp' && c.charge_type!=='vat_yearly').reduce((s:number,c:any)=>s+c.amount,0)
+    const mReceipts = receipts.filter(r=>r.month===m).reduce((s:number,r:any)=>s+r.amount,0)
     const isPaid = mCharges > 0 && mReceipts >= mCharges
-    const hasCharge = mCharges > 0
-    return { month: m, charges: mCharges, receipts: mReceipts, isPaid, hasCharge }
+    return { month: m, charges: mCharges, receipts: mReceipts, isPaid, hasCharge: mCharges > 0 }
   })
 
   async function handleEditCharge(id: number, amount: number) {
-    await supabase.from('client_charges').update({ amount, is_auto: false, charge_type: 'manual' }).eq('id', id)
+    await supabase.from('client_charges').update({ amount, is_auto: false, charge_type: 'manual' }).eq('id',id)
     toast.success('Ενημερώθηκε'); setEditAmount(null); loadData(); onRefresh()
   }
 
@@ -400,7 +483,6 @@ function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClos
   return (
     <Modal title={client.name} onClose={onClose} wide>
       <div className="space-y-5">
-        {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -408,7 +490,7 @@ function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClos
               {client.type==='hond'&&<span className="badge badge-gray">{periodLabel(client.period||'monthly')}</span>}
             </div>
             {client.afm&&<p className="text-xs text-gray-400">ΑΦΜ: {client.afm}</p>}
-            {client.type==='hond'&&client.fee_amount>0&&<p className="text-xs text-blue-600">Αμοιβή χρέωσης: {formatMoney(client.fee_amount)} | Τιμολόγιο: {formatMoney(client.invoice_amount)}</p>}
+            {client.type==='hond'&&client.fee_amount>0&&<p className="text-xs text-blue-600">Αμοιβή: {formatMoney(client.fee_amount)} | Τιμολόγιο: {formatMoney(client.invoice_amount)}</p>}
           </div>
           <div className="text-right">
             <p className="text-xs text-gray-400 mb-0.5">Τρέχον υπόλοιπο</p>
@@ -416,75 +498,77 @@ function ClientDetailModal({ client, onClose, onRefresh }: { client: any; onClos
           </div>
         </div>
 
-        {/* Επιλογή έτους */}
         <div className="flex items-center gap-2">
           <label className="text-xs text-gray-500">Έτος:</label>
-          <select className="select w-24 py-1 text-xs" value={year} onChange={e=>setYear(parseInt(e.target.value))}>
+          <select className="select w-24 py-1 text-xs" value={selectedYear} onChange={e=>setSelectedYear(parseInt(e.target.value))}>
             {getYearRange(2020).map(y=><option key={y} value={y}>{y}</option>)}
           </select>
-          <div className="ml-auto flex items-center gap-3 text-sm">
+          <div className="ml-auto flex items-center gap-3 text-sm flex-wrap">
             <span className="text-gray-500">Χρεώσεις: <strong>{formatMoney(totalCharges)}</strong></span>
             <span className="text-gray-500">Εισπράξεις: <strong className="text-green-600">{formatMoney(totalReceipts)}</strong></span>
-            <span className={`font-semibold ${yearBalance>0?'text-red-600':'text-green-600'}`}>Υπόλοιπο {year}: {formatMoney(yearBalance)}</span>
+            <span className={`font-semibold ${yearBalance>0?'text-red-600':'text-green-600'}`}>Υπόλοιπο {selectedYear}: {formatMoney(yearBalance)}</span>
           </div>
         </div>
 
-        {/* Μηνιαία grid */}
         {loading ? <p className="text-center text-gray-400 py-8">Φόρτωση...</p> : (
-          <div>
-            <p className="section-title">Μηνιαία κατάσταση {year}</p>
-            <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
-              {monthlyData.map(m=>(
-                <div key={m.month} className={clsx(
-                  'rounded-lg p-3 border text-sm',
-                  !m.hasCharge ? 'bg-gray-50 border-gray-100 opacity-50' :
-                  m.isPaid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                )}>
-                  <div className="font-medium text-gray-700">{MONTHS[m.month-1]}</div>
-                  {m.hasCharge ? (
-                    <>
-                      <div className={`font-semibold mt-1 ${m.isPaid?'text-green-700':'text-red-700'}`}>{formatMoney(m.charges)}</div>
-                      {m.isPaid
-                        ? <div className="text-xs text-green-600 mt-0.5">✓ Εξοφλημένη</div>
-                        : m.receipts > 0
-                          ? <div className="text-xs text-orange-600 mt-0.5">Μερική: {formatMoney(m.receipts)}</div>
-                          : <div className="text-xs text-red-500 mt-0.5">Ανεξόφλητη</div>
-                      }
-                    </>
-                  ) : (
-                    <div className="text-xs text-gray-400 mt-1">—</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Αναλυτικές χρεώσεις */}
-        {!loading && charges.length > 0 && (
-          <div>
-            <p className="section-title">Αναλυτικές χρεώσεις</p>
-            {charges.map(c=>(
-              <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-50 text-sm">
-                <span className="text-gray-600">{MONTHS[c.month-1]}{c.charge_type==='stamp'?' (Χαρτόσημο)':c.charge_type==='vat_yearly'?' (ΦΠΑ ετήσιο)':''}{!c.is_auto?' ✎':''}</span>
-                {editAmount?.id===c.id ? (
-                  <div className="flex items-center gap-1">
-                    <input type="number" className="input w-24 py-1 text-xs" value={editAmount?.amount??''} onChange={e=>setEditAmount({id:c.id,amount:e.target.value})} step="0.01" />
-                    <button className="btn-primary btn-sm py-1 text-xs" onClick={()=>handleEditCharge(c.id,parseFloat(editAmount?.amount||'0'))}>✓</button>
-                    <button className="btn-secondary btn-sm py-1 text-xs" onClick={()=>setEditAmount(null)}>✕</button>
+          <>
+            <div>
+              <p className="section-title">Μηνιαία κατάσταση {selectedYear}</p>
+              <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                {monthlyData.map(m=>(
+                  <div key={m.month} className={clsx(
+                    'rounded-lg p-2 border text-center text-xs',
+                    !m.hasCharge ? 'bg-gray-50 border-gray-100 opacity-50' :
+                    m.isPaid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                  )}>
+                    <div className="font-medium text-gray-700">{MONTHS_SHORT[m.month-1]}</div>
+                    {m.hasCharge ? (
+                      <>
+                        <div className={`font-semibold mt-0.5 ${m.isPaid?'text-green-700':'text-red-700'}`}>{formatMoney(m.charges)}</div>
+                        <div className={`text-xs mt-0.5 ${m.isPaid?'text-green-600':'text-red-500'}`}>{m.isPaid?'✓ Εξοφλ.':m.receipts>0?`${formatMoney(m.receipts)}`:'Ανεξόφλ.'}</div>
+                      </>
+                    ) : <div className="text-gray-300 mt-1">—</div>}
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{formatMoney(c.amount)}</span>
-                    <button className="text-gray-300 hover:text-gray-600 text-xs" onClick={()=>setEditAmount({id:c.id,amount:c.amount.toString()})}>✎</button>
-                  </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="section-title">Αναλυτικές χρεώσεις</p>
+                {charges.map(c=>(
+                  <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-50 text-sm">
+                    <span className="text-gray-600">{MONTHS_SHORT[c.month-1]}{c.charge_type==='stamp'?' (Χαρτόσημο)':c.charge_type==='vat_yearly'?' (ΦΠΑ ετήσιο)':''}{!c.is_auto?' ✎':''}</span>
+                    {editAmount?.id===c.id ? (
+                      <div className="flex items-center gap-1">
+                        <input type="number" className="input w-20 py-1 text-xs" value={editAmount?.amount??''} onChange={e=>setEditAmount({id:c.id,amount:e.target.value})} step="0.01" />
+                        <button className="btn-primary btn-sm py-0.5 text-xs" onClick={()=>handleEditCharge(c.id,parseFloat(editAmount?.amount||'0'))}>✓</button>
+                        <button className="btn-secondary btn-sm py-0.5 text-xs" onClick={()=>setEditAmount(null)}>✕</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">{formatMoney(c.amount)}</span>
+                        <button className="text-gray-300 hover:text-gray-600 text-xs ml-1" onClick={()=>setEditAmount({id:c.id,amount:c.amount.toString()})}>✎</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {charges.length===0&&<p className="text-xs text-gray-400 py-4 text-center">Δεν υπάρχουν χρεώσεις</p>}
+              </div>
+              <div>
+                <p className="section-title">Εισπράξεις</p>
+                {receipts.map(r=>(
+                  <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 text-sm">
+                    <span className="text-gray-600">{new Date(r.receipt_date).toLocaleDateString('el-GR')}</span>
+                    <span className="font-medium text-green-600">+{formatMoney(r.amount)}</span>
+                  </div>
+                ))}
+                {receipts.length===0&&<p className="text-xs text-gray-400 py-4 text-center">Δεν υπάρχουν εισπράξεις</p>}
+              </div>
+            </div>
+          </>
         )}
 
-        {/* Μεταφορά υπολοίπου */}
         <div className="border-t border-gray-100 pt-4">
           <p className="section-title">Μεταφορά υπολοίπου</p>
           <div className="grid grid-cols-3 gap-3">
