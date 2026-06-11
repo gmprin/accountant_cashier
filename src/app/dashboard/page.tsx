@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const [showOblMonthModal, setShowOblMonthModal] = useState(false)
   const [oblData, setOblData] = useState<any[]>([])
   const [totalUnpaidObl, setTotalUnpaidObl] = useState(0)
+  const [totalUnpaidOblMonth, setTotalUnpaidOblMonth] = useState(0)
   const weekStart = getWeekStartStr()
 
   useEffect(() => { loadData() }, [])
@@ -48,16 +49,39 @@ export default function DashboardPage() {
   }
 
   async function loadObligationsTotal() {
+    const now = new Date()
+    // Εβδομάδα: Δευτέρα έως Κυριακή
+    const weekStart = getWeekStartStr()
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+    const weekEndStr = weekEnd.toISOString().split('T')[0]
+    // Μήνας
+    const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]
+
     const { data: obls } = await supabase
       .from('obligations')
       .select('*, payments:obligation_payments(amount)')
       .eq('is_active', true)
-    const total = (obls||[]).reduce((s:number,o:any) => {
+
+    const result = (obls||[]).map((o:any) => {
       const paid = (o.payments||[]).reduce((p:number,x:any)=>p+x.amount, 0)
       const balance = o.amount > 0 ? o.amount - paid : 0
-      return s + balance
-    }, 0)
-    setTotalUnpaidObl(total)
+      return { ...o, paid, balance }
+    }).filter((o:any) => o.balance > 0)
+
+    // Εβδομαδιαίες: λήγουν εντός τρέχουσας εβδομάδας
+    const weekTotal = result
+      .filter((o:any) => o.next_due_date && o.next_due_date >= weekStart && o.next_due_date <= weekEndStr)
+      .reduce((s:number,o:any)=>s+o.balance, 0)
+
+    // Μηνιαίες: λήγουν εντός τρέχοντος μήνα
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
+    const monthTotal = result
+      .filter((o:any) => o.next_due_date && o.next_due_date >= monthStart && o.next_due_date <= monthEnd)
+      .reduce((s:number,o:any)=>s+o.balance, 0)
+
+    setTotalUnpaidObl(weekTotal)
+    setTotalUnpaidOblMonth(monthTotal)
   }
 
   async function loadObligations() {
@@ -145,7 +169,7 @@ export default function DashboardPage() {
             </div>
             <div className="metric-card cursor-pointer hover:bg-orange-50 transition-colors border border-orange-100" onClick={handleOblMonthClick}>
               <p className="text-xs text-gray-500 mb-1">Ανεξόφλητες υποχρεώσεις <span className="text-blue-500 text-xs">↗</span></p>
-              <p className="text-base font-semibold text-orange-600">{formatMoney(totalUnpaidObl)}</p>
+              <p className="text-base font-semibold text-orange-600">{formatMoney(totalUnpaidOblMonth)}</p>
             </div>
           </div>
         </div>
