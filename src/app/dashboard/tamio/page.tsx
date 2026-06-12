@@ -176,6 +176,13 @@ export default function TamioPage() {
 
   async function handleDelete(id: number) {
     if (!confirm('Διαγραφή κίνησης;')) return
+    // Διαγραφή από obligation_payments αν υπάρχει σύνδεση
+    await supabase.from('obligation_payments').delete().eq('cashflow_entry_id', id)
+    // Διαγραφή από client_receipts αν υπάρχει σύνδεση
+    await supabase.from('client_receipts').delete().eq('cashflow_entry_id', id)
+    // Διαγραφή από partner_distributions αν υπάρχει σύνδεση
+    await supabase.from('partner_distributions').delete().eq('cashflow_entry_id', id)
+    // Τέλος διαγραφή κύρια κίνηση
     await supabase.from('cashflow_entries').delete().eq('id', id)
     toast.success('Διαγράφηκε')
     loadAll()
