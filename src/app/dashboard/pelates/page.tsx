@@ -42,6 +42,8 @@ export default function PelatesPage() {
   const [showImport, setShowImport] = useState(false)
   const [selectedClient, setSelectedClient] = useState<any>(null)
   const [importRows, setImportRows] = useState<any[]>([])
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivedClients, setArchivedClients] = useState<any[]>([])
   const [importLoading, setImportLoading] = useState(false)
   const [form, setForm] = useState<any>({...emptyForm})
 
@@ -50,12 +52,16 @@ export default function PelatesPage() {
 
   async function loadClients() {
     setLoading(true)
-    const { data } = await supabase.from('clients').select('*').eq('is_active', true).order('name')
+    const [{ data }, { data: archived }] = await Promise.all([
+      supabase.from('clients').select('*').eq('is_active', true).order('name'),
+      supabase.from('clients').select('*').eq('is_active', false).order('name'),
+    ])
     const withBal = await Promise.all((data||[]).map(async c => {
       const { data: bal } = await supabase.rpc('get_client_balance', { p_client_id: c.id, p_year: null })
       return { ...c, current_balance: bal || 0 }
     }))
     setClients(withBal)
+    setArchivedClients(archived || [])
     setLoading(false)
   }
 
@@ -162,6 +168,11 @@ export default function PelatesPage() {
     toast.success('Αρχειοθετήθηκε'); loadClients()
   }
 
+  async function handleRestore(id: number) {
+    await supabase.from('clients').update({ is_active: true }).eq('id', id)
+    toast.success('Ο πελάτης επαναφέρθηκε'); loadClients()
+  }
+
   function handleExcelFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]; if (!file) return
     const reader = new FileReader()
@@ -219,8 +230,9 @@ export default function PelatesPage() {
 
       <div className="p-6 space-y-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <button className={clsx('btn btn-sm',activeTab==='hond'?'btn-primary':'btn-secondary')} onClick={()=>setActiveTab('hond')}>Χονδρική ({clients.filter(c=>c.type==='hond').length})</button>
-          <button className={clsx('btn btn-sm',activeTab==='lian'?'btn-primary':'btn-secondary')} onClick={()=>setActiveTab('lian')}>Λιανική ({clients.filter(c=>c.type==='lian').length})</button>
+          <button className={clsx('btn btn-sm',activeTab==='hond'?'btn-primary':'btn-secondary')} onClick={()=>{setActiveTab('hond');setShowArchived(false)}}>Χονδρική ({clients.filter(c=>c.type==='hond').length})</button>
+          <button className={clsx('btn btn-sm',activeTab==='lian'?'btn-primary':'btn-secondary')} onClick={()=>{setActiveTab('lian');setShowArchived(false)}}>Λιανική ({clients.filter(c=>c.type==='lian').length})</button>
+          <button className={clsx('btn btn-sm',showArchived?'btn-primary':'btn-secondary')} onClick={()=>setShowArchived(!showArchived)}>Αρχειοθετημένοι ({archivedClients.length})</button>
           <select className="select w-24 py-1 text-sm" value={selectedYear} onChange={e=>setSelectedYear(parseInt(e.target.value))}>
             {getYearRange(2020).map(y=><option key={y} value={y}>{y}</option>)}
           </select>
@@ -308,6 +320,51 @@ export default function PelatesPage() {
           </div>
         )}
       </div>
+
+      {/* Αρχειοθετημένοι */}
+      {showArchived && (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <p className="section-title mb-0">Αρχειοθετημένοι πελάτες ({archivedClients.length})</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50"><tr>
+                <th className="table-header">Επωνυμία</th>
+                <th className="table-header w-24">ΑΦΜ</th>
+                <th className="table-header w-24">Τύπος</th>
+                <th className="table-header w-28 text-right">Αμοιβή</th>
+                <th className="table-header w-24"></th>
+              </tr></thead>
+              <tbody>
+                {archivedClients.length === 0 && (
+                  <tr><td colSpan={5} className="table-cell text-center text-gray-400 py-8">Δεν υπάρχουν αρχειοθετημένοι πελάτες</td></tr>
+                )}
+                {archivedClients.map(c => (
+                  <tr key={c.id} className="hover:bg-gray-50 opacity-60">
+                    <td className="table-cell font-medium">{c.name}</td>
+                    <td className="table-cell text-gray-500 text-xs">{c.afm || '—'}</td>
+                    <td className="table-cell">
+                      <span className={clsx('badge', c.type==='hond'?'badge-blue':'badge-purple')}>
+                        {c.type==='hond'?'Χονδρική':'Λιανική'}
+                      </span>
+                    </td>
+                    <td className="table-cell text-right text-gray-500">
+                      {c.type==='hond' ? formatMoney(c.fee_amount > 0 ? c.fee_amount : c.invoice_amount) : formatMoney(c.fee||0)}
+                    </td>
+                    <td className="table-cell">
+                      <button
+                        className="text-xs text-green-600 hover:text-green-800 border border-green-200 rounded px-2 py-1"
+                        onClick={() => handleRestore(c.id)}
+                      >↺ Επαναφορά</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Φόρμα νέου/επεξεργασίας */}
       {showForm && (
