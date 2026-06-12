@@ -43,8 +43,13 @@ export default function DashboardPage() {
     // Load obligations για τα totals
     loadObligationsTotal()
     const entries = e || []
-    setAllReceipts(entries.filter((x:any) => x.entry_type === 'receipt'))
-    setAllPayments(entries.filter((x:any) => x.entry_type !== 'receipt'))
+    // Φίλτρο μόνο για την τρέχουσα εβδομάδα
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+    const weekEndStr = weekEnd.toISOString().split('T')[0]
+    const weekEntries = entries.filter((x:any) => x.entry_date >= weekStart && x.entry_date <= weekEndStr)
+    setAllReceipts(weekEntries.filter((x:any) => x.entry_type === 'receipt'))
+    setAllPayments(weekEntries.filter((x:any) => x.entry_type !== 'receipt'))
     setLoading(false)
   }
 
