@@ -94,24 +94,39 @@ export default function DashboardPage() {
     setTotalUnpaidOblMonth(monthTotal)
   }
 
-  async function loadObligations() {
+  async function loadObligationsForModal(type: 'week'|'month') {
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    const weekStart = getWeekStartStr()
+    const weekEndDate = new Date(weekStart)
+    weekEndDate.setDate(weekEndDate.getDate() + 6)
+    const weekEndStr = weekEndDate.toISOString().split('T')[0]
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
+    const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]
+
     const { data: obls } = await supabase
       .from('obligations')
       .select('*, payments:obligation_payments(amount, payment_date)')
       .eq('is_active', true)
+
     const result = (obls||[]).map((o:any) => {
       const paid = (o.payments||[]).reduce((s:number,p:any)=>s+p.amount, 0)
       const balance = o.amount > 0 ? o.amount - paid : 0
-      return { ...o, paid, balance }
-    }).filter((o:any) => o.balance > 0)
+      const dueDateStr = o.next_due_date ? o.next_due_date.substring(0,10) : null
+      return { ...o, paid, balance, dueDateStr }
+    }).filter((o:any) => {
+      if (o.balance <= 0) return false
+      if (!o.dueDateStr) return false
+      if (o.dueDateStr < todayStr) return true // εκπρόθεσμες
+      if (type === 'week') return o.dueDateStr >= weekStart && o.dueDateStr <= weekEndStr
+      return o.dueDateStr >= monthStart && o.dueDateStr <= monthEnd
+    })
+
     setOblData(result)
-    setTotalUnpaidObl(result.reduce((s:number,o:any)=>s+o.balance, 0))
   }
 
-  function handleOblWeekClick() { loadObligations().then(()=>setShowOblWeekModal(true)) }
-  function handleOblMonthClick() { loadObligations().then(()=>setShowOblMonthModal(true)) }
-
-  const totalObl = oblData.reduce((s,o)=>s+o.balance, 0)
+  function handleOblWeekClick() { loadObligationsForModal('week').then(()=>setShowOblWeekModal(true)) }
+  function handleOblMonthClick() { loadObligationsForModal('month').then(()=>setShowOblMonthModal(true)) }
 
   return (
     <div>
@@ -304,7 +319,7 @@ export default function DashboardPage() {
                 </table>
                 <div className="flex justify-between pt-2 border-t border-gray-100 font-semibold text-sm">
                   <span>Σύνολο ανεξόφλητων</span>
-                  <span className="text-red-600">{formatMoney(totalObl)}</span>
+                  <span className="text-red-600">{formatMoney(oblData.reduce((s,o)=>s+o.balance,0))}</span>
                 </div>
               </>
             )}
